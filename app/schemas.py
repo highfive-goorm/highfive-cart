@@ -1,31 +1,21 @@
-from pydantic import BaseModel
+# cart/app/schemas.py
+from pydantic import BaseModel, Field
 from typing import List
-
 
 class CartItem(BaseModel):
     product_id: int
     quantity: int
-    price: int
-    discounted_price: int
-    discount: int
-
+    price: int = 0
+    discounted_price: int = 0
+    discount: int = 0
 
 class CartBase(BaseModel):
-    id: str
+    id: str = Field(default=None, alias="id")
+    user_id: str
     cart_items: List[CartItem]
-    user_id: str
-    product_id: int
-    quantity: int
+    created_at: str = None
+    updated_at: str = None
 
-
-class UpdateProduct(CartBase):
-    product_id: int
-    quantity: int
-    price: int
-    discounted_price: int
-    discount: int
-
-
-# Optional: schema for responses including user_id
-class CartOut(CartBase):
-    user_id: str
+    class Config:
+        allow_population_by_field_name = True
+        orm_mode = True

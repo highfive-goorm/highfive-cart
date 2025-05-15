@@ -1,7 +1,15 @@
+# cart/app/database.py
+import os
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo.database import Database
-import os
-client = AsyncIOMotorClient("mongodb://root:mongodb_order@mongodb_order:27017")
-db = client["cart"]  # 사용할 DB 이름
+from dotenv import load_dotenv
 
-collection = db["cart"]
+load_dotenv()
+
+MONGO_URL = os.getenv("MONGO_URL", "mongodb://root:mongodb_cart@mongodb_cart:27017")
+DB_NAME = os.getenv("DB_NAME", "cart")
+COLLECTION_NAME = os.getenv("COLLECTION_NAME", "cart")
+
+client = AsyncIOMotorClient(MONGO_URL)
+db = client[DB_NAME]
+collection = db[COLLECTION_NAME]
