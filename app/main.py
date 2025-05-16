@@ -6,6 +6,7 @@ from fastapi import FastAPI, HTTPException, status, Path, Depends
 from motor.motor_asyncio import AsyncIOMotorCollection
 from .schemas import CartBase, CartItem
 from .database import collection
+import httpx
 
 app = FastAPI()
 
@@ -54,11 +55,12 @@ async def add_to_cart(user_id: str, item: CartItem):
         return CartBase(**cart)
 
 
-@app.get("/cart/{user_id}")
-async def get_cart(user_id: str, collection: AsyncIOMotorCollection = Depends(get_db)):
+@app.get("/cart/{user_id}", response_model=CartBase)
+async def get_cart(user_id: str):
     cart = await collection.find_one({"user_id": user_id})
     if not cart:
         raise HTTPException(404, "Cart not found")
+    
     cart_items = cart.get("cart_items", [])
     product_id_list = [item["product_id"] for item in cart_items]
 
@@ -66,15 +68,18 @@ async def get_cart(user_id: str, collection: AsyncIOMotorCollection = Depends(ge
     detailed_map = {}
     if product_id_list:
         async with httpx.AsyncClient() as client:
-            resp = await client.post(
-                "http://product:8001/products/bulk", 
-                json={"product_ids": product_id_list},
-                timeout=5.0
-            )
-            resp.raise_for_status()
-            bulk_result = resp.json()
-            for prod in bulk_result.get("products", []):
-                detailed_map[prod["id"]] = prod
+            try:
+                resp = await client.post(
+                    "http://product:8001/products/bulk", 
+                    json={"product_ids": product_id_list},
+                    timeout=10.0
+                )
+                resp.raise_for_status()
+                bulk_result = resp.json()
+                for prod in bulk_result.get("products", []):
+                    detailed_map[prod["id"]] = prod
+            except Exception as e:
+                raise HTTPException(502, f"Failed to fetch product details: {e}")
 
     # cart_items에 상품 정보 합성
     for item in cart_items:
@@ -85,11 +90,16 @@ async def get_cart(user_id: str, collection: AsyncIOMotorCollection = Depends(ge
             "discount": prod.get("discount", 0),
             "price": prod.get("price", 0),
             "discounted_price": prod.get("discounted_price", 0),
+            "brand_id": prod.get("brand_id", 0),
+            "brand_kor": prod.get("brand_kor", ""),
+            "brand_eng": prod.get("brand_eng", ""),
+            "brand_like_count": prod.get("brand_like_count", 0),
         })
 
     cart["cart_items"] = cart_items
     cart["id"] = str(cart.pop("_id"))
-    return cart
+    return CartBase(**cart)
+
 
 @app.delete("/cart/{user_id}", status_code=204)
 async def delete_cart(user_id: str):

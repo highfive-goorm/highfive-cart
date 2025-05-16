@@ -1,6 +1,6 @@
-# cart/app/schemas.py
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import List
+from datetime import datetime
 
 class CartItem(BaseModel):
     product_id: int
@@ -13,9 +13,10 @@ class CartBase(BaseModel):
     id: str = Field(default=None, alias="id")
     user_id: str
     cart_items: List[CartItem]
-    created_at: str = None
-    updated_at: str = None
+    created_at: datetime = None
+    updated_at: datetime = None
 
-    class Config:
-        allow_population_by_field_name = True
-        orm_mode = True
+    model_config = ConfigDict(
+        validate_by_name=True,
+        from_attributes=True
+    )
