@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field, ConfigDict
 from typing import List
 from datetime import datetime
 
+
 class CartItem(BaseModel):
     product_id: int
     quantity: int
@@ -11,8 +12,8 @@ class CartItem(BaseModel):
     discounted_price: int = 0
     discount: int = 0
 
+
 class CartBase(BaseModel):
-    id: str = Field(default=None, alias="id")
     user_id: str
     cart_items: List[CartItem]
     created_at: datetime = None
