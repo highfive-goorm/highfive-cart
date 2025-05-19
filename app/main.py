@@ -3,14 +3,16 @@ from datetime import datetime
 from typing import Dict, List
 from bson import ObjectId
 from fastapi import FastAPI, HTTPException, status, Path, Depends
-from motor.motor_asyncio import AsyncIOMotorCollection
+from motor.motor_asyncio import AsyncIOMotorCollection, AsyncIOMotorClient
 from .schemas import CartBase, CartItem
 from .database import collection
 import httpx
 
 app = FastAPI()
 
-
+def get_db() -> AsyncIOMotorCollection:
+    client = AsyncIOMotorClient("mongodb://root:mongodb_cart@mongodb_cart:27017")
+    return client.cart.cart
 def object_id_or_404(object_id: str) -> ObjectId:
     try:
         return ObjectId(object_id)
@@ -70,7 +72,7 @@ async def get_cart(user_id: str):
         async with httpx.AsyncClient() as client:
             try:
                 resp = await client.post(
-                    "http://product:8001/products/bulk", 
+                    "http://product:8001/products/bulk",
                     json={"product_ids": product_id_list},
                     timeout=10.0
                 )
