@@ -221,22 +221,81 @@ async def delete_cart_item(
     return
 
 
-@app.put("/cart/{user_id}/{product_id}", response_model=CartBase)
-async def update_cart_item(user_id: str, product_id: int, quantity:int = Body(...),
-                           cart_collection: AsyncIOMotorCollection = Depends(get_cart_collection)):
+@app.put(
+    "/cart/{user_id}/{product_id}",
+    response_model=CartBase,
+    summary="카트 항목 수량을 업데이트하고 전체 카트(상품·브랜드 정보 포함)를 반환"
+)
+async def update_cart_item(
+    user_id: str,
+    product_id: int,
+    item: CartReq = Body(..., description="새 수량({\"quantity\": N})"),
+    cart_collection: AsyncIOMotorCollection = Depends(get_cart_collection),
+):
     now = datetime.utcnow()
-    result = await cart_collection.update_one(
+
+    # 1) 수량 업데이트
+    update_res = await cart_collection.update_one(
         {"user_id": user_id, "cart_items.product_id": product_id},
-        {"$set": {"cart_items.$.quantity": quantity, "updated_at": now}}
+        {"$set": {"cart_items.$.quantity": item.quantity, "updated_at": now}}
     )
 
-    if result is None:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="DB 연결 오류"
-        )
-    if result.modified_count == 0:
-        raise HTTPException(status_code=404, detail="Cart item not found")
-    cart = await cart_collection.find_one({"user_id": user_id})
-    cart["id"] = str(cart.pop("_id"))
-    return CartBase(**cart)
+    if update_res.matched_count == 0:
+        raise HTTPException(404, "Cart not found")
+    if update_res.modified_count == 0:
+        raise HTTPException(404, "Cart item not found")
+
+    # 2) 업데이트된 카트 문서 가져오기
+    cart_doc = await cart_collection.find_one({"user_id": user_id})
+    if not cart_doc:
+        raise HTTPException(404, "Cart not found after update")
+
+    # 3) cart_items & product_ids 준비
+    cart_items = cart_doc.get("cart_items", [])
+    product_ids = [ci["product_id"] for ci in cart_items]
+
+    # 4) 상품 서비스에 bulk 요청
+    detailed_map: dict[int, dict] = {}
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                "http://product:8001/product/bulk",
+                json={"product_ids": product_ids},
+                timeout=10.0
+            )
+            resp.raise_for_status()
+            bulk_json = resp.json()
+            if isinstance(bulk_json, dict):
+                prods = bulk_json.get("product_ids", [])
+            elif isinstance(bulk_json, list):
+                prods = bulk_json
+            else:
+                prods = []
+            for p in prods:
+                detailed_map[p["id"]] = p
+
+    except httpx.RequestError as e:
+        raise HTTPException(502, f"상품 서비스 네트워크 오류: {e}")
+    except Exception as e:
+        raise HTTPException(502, f"상품 서비스 처리 중 오류: {e}")
+
+    # 5) cart_items를 상품·브랜드 정보로 enrich
+    enriched = []
+    for ci in cart_items:
+        prod = detailed_map.get(ci["product_id"], {})
+        enriched.append({
+            **ci,
+            "name":             prod.get("name", "알 수 없음"),
+            "img_url":          prod.get("img_url", ""),
+            "discount":         prod.get("discount", 0),
+            "price":            prod.get("price", 0),
+            "discounted_price": prod.get("discounted_price", 0),
+            "brand_id":         prod.get("brand_id", 0),
+            "brand_kor":        prod.get("brand_kor", ""),
+            "brand_eng":        prod.get("brand_eng", ""),
+        })
+
+    # 6) 최종 포맷 정리 및 반환
+    cart_doc["cart_items"] = enriched
+    cart_doc["id"] = str(cart_doc.pop("_id"))
+    return CartBase(**cart_doc)

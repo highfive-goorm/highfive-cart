@@ -14,8 +14,9 @@ class CartItem(BaseModel):
     name: str
     price: int
 
+
 class CartReq(BaseModel):
-    quantity: Optional[int]
+    quantity: int
 
 
 class CartBase(BaseModel):
