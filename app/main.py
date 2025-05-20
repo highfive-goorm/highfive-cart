@@ -106,7 +106,7 @@ async def get_cart(
         )
 
     # 2) cart_items 꺼내기 (없으면 빈 리스트)
-    cart_items = cart_doc.get("cart_items", [])
+    cart_items = cart_doc.get("products", [])
     product_ids = [item["product_id"] for item in cart_items]
 
     # 3) 상품 서비스에 bulk 요청
@@ -120,7 +120,13 @@ async def get_cart(
             )
             resp.raise_for_status()
             bulk_json = resp.json()
-            for prod in bulk_json.get("products", []):
+            if isinstance(bulk_json, dict):
+                prods = bulk_json.get("cart_items", [])
+            elif isinstance(bulk_json, list):
+                prods = bulk_json
+            else:
+                prods = []
+            for prod in prods:
                 detailed_map[prod["id"]] = prod
 
     except httpx.RequestError as e:
