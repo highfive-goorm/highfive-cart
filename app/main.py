@@ -2,27 +2,28 @@
 from datetime import datetime
 from typing import Dict, List
 from bson import ObjectId
-from fastapi import FastAPI, HTTPException, status, Path, Depends
+from fastapi import FastAPI, HTTPException, status, Path, Depends, Body
 from motor.motor_asyncio import AsyncIOMotorCollection, AsyncIOMotorClient, AsyncIOMotorDatabase
-from .schemas import CartBase, CartItem
+from .schemas import CartBase, CartItem, CartReq
 import httpx
 
 app = FastAPI()
 
-
 MONGO_URI = "mongodb://postgres:han00719@mongodb_cart:27017/admin?authSource=admin"
-DB_NAME= "cart"
+DB_NAME = "cart"
+
 
 # 1) db dependency
 async def get_db() -> AsyncIOMotorDatabase:
     client = AsyncIOMotorClient(MONGO_URI)
     return client[DB_NAME]
 
+
 # 2) collection dependency
 def get_cart_collection(
-    db: AsyncIOMotorDatabase = Depends(get_db)
+        db: AsyncIOMotorDatabase = Depends(get_db)
 ) -> AsyncIOMotorCollection:
-    return db["cart"]    # ← whatever your collection name is
+    return db["cart"]  # ← whatever your collection name is
 
 
 def object_id_or_404(object_id: str) -> ObjectId:
@@ -106,7 +107,7 @@ async def get_cart(
         )
 
     # 2) cart_items 꺼내기 (없으면 빈 리스트)
-    cart_items = cart_doc.get("products", [])
+    cart_items = cart_doc.get("cart_items", [])
     product_ids = [item["product_id"] for item in cart_items]
 
     # 3) 상품 서비스에 bulk 요청
@@ -193,14 +194,14 @@ async def delete_cart(
 
 
 @app.delete(
-  "/cart/{user_id}/{product_id}",
-  status_code=204,
-  summary="카트에서 단일 아이템 제거"
+    "/cart/{user_id}/{product_id}",
+    status_code=204,
+    summary="카트에서 단일 아이템 제거"
 )
 async def delete_cart_item(
-    user_id: str,
-    product_id: int,
-    cart_collection = Depends(get_cart_collection),  # ← correct dependency
+        user_id: str,
+        product_id: int,
+        cart_collection=Depends(get_cart_collection),  # ← correct dependency
 ):
     # remove one item
     result = await cart_collection.update_one(
@@ -221,7 +222,7 @@ async def delete_cart_item(
 
 
 @app.put("/cart/{user_id}/{product_id}", response_model=CartBase)
-async def update_cart_item(user_id: str, product_id: int, quantity: int,
+async def update_cart_item(user_id: str, product_id: int, quantity:int = Body(...),
                            cart_collection: AsyncIOMotorCollection = Depends(get_cart_collection)):
     now = datetime.utcnow()
     result = await cart_collection.update_one(
