@@ -8,11 +8,11 @@ from datetime import datetime
 class CartItem(BaseModel):
     product_id: int
     quantity: int
-    discounted_price: int = 0
-    discount: int = 0
-    img_url: str
-    name: str
-    price: int
+    discounted_price: Optional[int] = None
+    discount: Optional[int] = None
+    img_url: Optional[str] = None
+    name: Optional[str] = None
+    price: Optional[int] = None
 
 
 class CartReq(BaseModel):
@@ -25,7 +25,5 @@ class CartBase(BaseModel):
     created_at: datetime = None
     updated_at: datetime = None
 
-    model_config = ConfigDict(
-        validate_by_name=True,
-        from_attributes=True
-    )
+    class Config:
+        orm_mode=True

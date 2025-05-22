@@ -9,7 +9,7 @@ import httpx
 
 app = FastAPI()
 
-MONGO_URI = "mongodb://postgres:han00719@mongodb_cart:27017/admin?authSource=admin"
+MONGO_URI = "mongodb://postgres:han00719()@mongodb_cart:27017/admin?authSource=admin"
 DB_NAME = "cart"
 
 
