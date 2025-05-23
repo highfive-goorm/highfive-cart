@@ -6,13 +6,16 @@ from datetime import datetime
 
 
 class CartItem(BaseModel):
-    product_id: int
+    product_id: Optional[int]
     quantity: int
     discounted_price: Optional[int] = None
     discount: Optional[int] = None
     img_url: Optional[str] = None
     name: Optional[str] = None
     price: Optional[int] = None
+
+    class Config:
+        orm_mode = True
 
 
 class CartReq(BaseModel):
@@ -26,4 +29,4 @@ class CartBase(BaseModel):
     updated_at: datetime = None
 
     class Config:
-        orm_mode=True
+        orm_mode = True
