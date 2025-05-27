@@ -14,26 +14,18 @@ from typing import Dict, List
 from bson import ObjectId
 from fastapi import FastAPI, HTTPException, status, Path, Depends, Body
 from motor.motor_asyncio import AsyncIOMotorCollection, AsyncIOMotorClient, AsyncIOMotorDatabase
+
+from .database import collection
 from .schemas import CartBase, CartItem, CartReq
 import httpx
 
 app = FastAPI()
 
-MONGO_URI = "mongodb://postgres:han00719()@mongodb_cart:27017/admin?authSource=admin"
-DB_NAME = "cart"
 
 
 # 1) db dependency
-async def get_db() -> AsyncIOMotorDatabase:
-    client = AsyncIOMotorClient(MONGO_URI)
-    return client[DB_NAME]
-
-
-# 2) collection dependency
-def get_cart_collection(
-        db: AsyncIOMotorDatabase = Depends(get_db)
-) -> AsyncIOMotorCollection:
-    return db["cart"]  # ← whatever your collection name is
+async def get_cart_collection():
+    return collection # ← whatever your collection name is
 
 
 def object_id_or_404(object_id: str) -> ObjectId:
