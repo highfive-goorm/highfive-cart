@@ -10,6 +10,7 @@ ENV TZ=Asia/Seoul
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     tzdata \
+    curl \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # 이미지 내 작업 디렉토리 설정
@@ -32,4 +33,4 @@ USER appuser
 EXPOSE 8002
 
 # 컨테이너 시작 명령어 (각 서비스의 포트 및 시작 설정에 맞게 수정)
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002", "--log-level", "info", "--access-log"]

@@ -36,6 +36,9 @@ def object_id_or_404(object_id: str) -> ObjectId:
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid ID format")
 
+@app.get("/health", status_code=200)
+async def health_check():
+    return {"status": "ok"}
 
 @app.post("/cart/{user_id}", response_model=CartBase, status_code=201)
 async def add_to_cart(
