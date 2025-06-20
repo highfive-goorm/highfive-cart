@@ -1,0 +1,187 @@
+name: CI/CD Pipeline for cart-service
+
+on:
+  push:
+    branches:
+      - develop
+    tags:
+      - '*.*.*'
+      - '!*.*.*-*'
+  pull_request:
+    branches:
+      - develop
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  # =========================================
+  # JOB 1: 버전 계산 및 빌드 준비
+  # =========================================
+  build:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version_tag: ${{ steps.tagger.outputs.new_tag || github.ref_name }}
+      changelog: ${{ steps.tagger.outputs.changelog }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Calculate and Create Git Tag for Develop
+        id: tagger
+        if: github.ref_type == 'branch'
+        uses: anothrNick/github-tag-action@1.67.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WITH_V: false
+          DEFAULT_BUMP: patch
+          CUSTOM_TAG_SCHEME: "feat:minor"
+
+      - name: Build image just for logging
+        run: |
+          docker build . -t temp-image > build_log.txt 2>&1 || true
+      
+      - name: Upload build log as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-${{ steps.tagger.outputs.new_tag || github.ref_name }}
+          path: build_log.txt
+
+ # =======================================================
+  # JOB 2: 1차 승인 알림 발송 (ECR 푸시)
+  # =======================================================
+  notify-for-push-approval:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download build log artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: build-log-${{ needs.build.outputs.version_tag }}
+
+      - name: Prepare Multi-line Notification Message
+        id: prepare_message
+        run: |
+          KEYWORDS="error|failed|warning|deprecated"
+          LOG_ISSUES=$(grep -i -E -C 2 "$KEYWORDS" build_log.txt || true)
+          
+          if [[ -z "$LOG_ISSUES" ]]; then
+            SUMMARY="✅ 빌드 로그에서 특별한 경고나 에러가 발견되지 않았습니다."
+          else
+            TRUNCATED_LOGS=$(echo "$LOG_ISSUES" | head -c 1500)
+            SUMMARY="⚠️ 빌드 로그에서 잠재적인 문제가 발견되었습니다. **Log Issues Summary:**\`\`\`${TRUNCATED_LOGS}\`\`\`"
+          fi
+          
+          {
+            echo "summary<<EOF"
+            echo "$SUMMARY"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Send Discord Notification for ECR Push Approval
+        uses: sarisia/actions-status-discord@v1
+        with:
+          webhook: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          title: "🔎 [1차 승인] ECR Push 승인 요청: cart ${{ needs.build.outputs.version_tag }}"
+          description: |
+            ${{ steps.prepare_message.outputs.summary }}
+
+            [➡️ 전체 로그 및 승인 페이지로 이동](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          color: 49151
+
+  # =====================================
+  # JOB 3: ECR 푸시 실행 (1차 승인 게이트)
+  # =====================================
+  push-to-ecr:
+    needs: [build, notify-for-push-approval]
+    runs-on: ubuntu-latest
+    environment:
+      name: ecr-push-approval
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up QEMU & Docker Buildx
+        uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Configure AWS credentials & Login to ECR
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-northeast-2
+      - uses: aws-actions/amazon-ecr-login@v2
+      - name: Build and push Multi-Arch Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: 326536620954.dkr.ecr.ap-northeast-2.amazonaws.com/highfive/highfive-cart:${{ needs.build.outputs.version_tag }}
+          cache-from: type=registry,ref=326536620954.dkr.ecr.ap-northeast-2.amazonaws.com/highfive/highfive-cart:buildcache
+          cache-to: type=registry,ref=326536620954.dkr.ecr.ap-northeast-2.amazonaws.com/highfive/highfive-cart:buildcache,mode=max
+
+  # ==================================================
+  # JOB 4: 2차 승인 알림 발송 (EKS 배포)
+  # ==================================================
+  notify-for-deploy-approval:
+    needs: [build, push-to-ecr]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Discord Notification for Deployment Approval
+        uses: sarisia/actions-status-discord@v1
+        with:
+          webhook: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          title: "🚀 [2차 승인] EKS 배포 승인 요청: cart ${{ needs.build.outputs.version_tag }}"
+          description: |
+            이미지가 ECR에 준비되었습니다. 배포를 진행하려면 아래 링크에서 승인해주세요.
+            [➡️ 배포 승인하기](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          color: 0xFF4500
+
+  # ==================================================
+  # JOB 5: 최종 배포 실행 (2차 승인 게이트)
+  # ==================================================
+  deploy-to-eks:
+    needs: [build, notify-for-deploy-approval]
+    runs-on: ubuntu-latest
+    environment:
+      name: production-deploy
+    steps:
+      - name: Checkout Configuration Repo
+        uses: actions/checkout@v4
+        with:
+          repository: highfive-goorm/hf-eks-config
+          token: ${{ secrets.CONFIG_REPO_PAT }}
+          path: 'config-repo'
+      - name: Update manifest file
+        run: |
+          sed -i -E "s|^(\s*image:\s*).*|\1326536620954.dkr.ecr.ap-northeast-2.amazonaws.com/highfive/highfive-cart:${{ needs.build.outputs.version_tag }}|" config-repo/highfive-cart-service.yaml
+      - name: Commit and push changes
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "Deploy image ${{ needs.build.outputs.version_tag }} for highfive-cart-service"
+          repository: 'config-repo'
+          file_pattern: 'highfive-cart-service.yaml'
+
+  # ==========================================================
+  # JOB 6: 워크플로우 실패 시 알림
+  # ==========================================================
+  notify-on-failure:
+    if: failure()
+    needs: [build, push-to-ecr, deploy-to-eks]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Discord Failure Notification
+        uses: sarisia/actions-status-discord@v1
+        with:
+          webhook: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          status: failure 
+          title: "❌ CI/CD 파이프라인 실패"
+          description: |
+            `${{ github.repository }}` 레포지토리의 워크플로우 실행에 실패했습니다.
+            [➡️ 실패한 워크플로우 로그 확인하기](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          color: 0xE74C3C

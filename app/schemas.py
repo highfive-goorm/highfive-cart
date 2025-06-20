@@ -6,7 +6,7 @@ from datetime import datetime
 
 
 class CartItem(BaseModel):
-    product_id: Optional[int]
+    product_id: int
     quantity: int
     discounted_price: Optional[int] = None
     discount: Optional[int] = None
@@ -14,8 +14,7 @@ class CartItem(BaseModel):
     name: Optional[str] = None
     price: Optional[int] = None
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True) # Updated from orm_mode for Pydantic v2
 
 
 class CartReq(BaseModel):
@@ -28,5 +27,4 @@ class CartBase(BaseModel):
     created_at: datetime = None
     updated_at: datetime = None
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True) # Updated from orm_mode for Pydantic v2
